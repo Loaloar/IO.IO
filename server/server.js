@@ -4,10 +4,23 @@ const WebSocket = require('ws');
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ noServer: true });
 
 // Serve static files from the public directory
 app.use(express.static('public'));
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
+// Handle WebSocket upgrade requests
+server.on('upgrade', (request, socket, head) => {
+  console.log('Upgrade request received for URL:', request.url);
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
+  });
+});
 
 // Game state
 const gameState = {
@@ -35,7 +48,9 @@ for (let i = 0; i < 50; i++) {
 }
 
 // Handle WebSocket connections
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, request) => {
+  console.log('New WebSocket connection established from ' + (request.headers['x-forwarded-for'] || request.connection.remoteAddress));
+  
   const playerId = generateId();
   
   // Add new player to game state
@@ -70,6 +85,7 @@ wss.on('connection', (ws) => {
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
+      console.log('Received message from player ' + playerId + ':', data);
       
       switch (data.type) {
         case 'move':
@@ -118,7 +134,8 @@ wss.on('connection', (ws) => {
   });
   
   // Handle client disconnect
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
+    console.log('WebSocket connection closed for player ' + playerId + '. Code:', code, 'Reason:', reason);
     // Remove player from game state
     delete gameState.players[playerId];
     
@@ -134,10 +151,14 @@ wss.on('connection', (ws) => {
       }
     });
   });
+  
+  ws.on('error', (error) => {
+    console.error('WebSocket error for player ' + playerId + ':', error);
+  });
 });
 
 // Start server
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log('Server running on port ' + PORT);
 });
