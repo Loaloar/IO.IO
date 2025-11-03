@@ -41,52 +41,64 @@ class Game {
   connect() {
     // Connect to WebSocket server
     // Use relative URL for production, localhost for development
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
     const host = window.location.host;
-    const wsUrl = protocol + '//' + host;
+    const wsUrl = protocol + host;
+    
+    console.log('Attempting to connect to WebSocket at:', wsUrl);
     
     this.ws = new WebSocket(wsUrl);
     
     this.ws.onopen = () => {
-      console.log('Connected to server');
+      console.log('Successfully connected to server');
     };
     
     this.ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      
-      switch (data.type) {
-        case 'init':
-          this.playerId = data.playerId;
-          this.players = data.gameState.players;
-          this.food = data.gameState.food;
-          break;
-          
-        case 'playerJoin':
-          this.players[data.player.id] = data.player;
-          this.updatePlayerCount();
-          break;
-          
-        case 'playerLeave':
-          delete this.players[data.playerId];
-          this.updatePlayerCount();
-          break;
-          
-        case 'move':
-          if (this.players[data.playerId]) {
-            this.players[data.playerId].x = data.x;
-            this.players[data.playerId].y = data.y;
-          }
-          break;
-          
-        case 'eatFood':
-          this.food = this.food.filter(food => food.id !== data.foodId);
-          // In a real game, we would add new food here from server message
-          break;
+      try {
+        const data = JSON.parse(event.data);
+        console.log('Received message:', data);
+        
+        switch (data.type) {
+          case 'init':
+            this.playerId = data.playerId;
+            this.players = data.gameState.players;
+            this.food = data.gameState.food;
+            this.updatePlayerCount();
+            break;
+            
+          case 'playerJoin':
+            this.players[data.player.id] = data.player;
+            this.updatePlayerCount();
+            break;
+            
+          case 'playerLeave':
+            delete this.players[data.playerId];
+            this.updatePlayerCount();
+            break;
+            
+          case 'move':
+            if (this.players[data.playerId]) {
+              this.players[data.playerId].x = data.x;
+              this.players[data.playerId].y = data.y;
+            }
+            break;
+            
+          case 'eatFood':
+            this.food = this.food.filter(food => food.id !== data.foodId);
+            // In a real game, we would add new food here from server message
+            break;
+        }
+      } catch (error) {
+        console.error('Error parsing message:', error);
       }
     };
     
-    this.ws.onclose = () => {
-      console.log('Disconnected from server');
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+    
+    this.ws.onclose = (event) => {
+      console.log('Disconnected from server. Code:', event.code, 'Reason:', event.reason);
       // Try to reconnect after 1 second
       setTimeout(() => this.connect(), 1000);
     };
@@ -125,7 +137,7 @@ class Game {
       player.y += dy * speed * deltaTime;
       
       // Send position update to server
-      if (this.ws.readyState === WebSocket.OPEN) {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({
           type: 'move',
           x: player.x,
@@ -151,7 +163,7 @@ class Game {
       // If player collides with food
       if (distance < player.size / 2 + 5) {
         // Send eat message to server
-        if (this.ws.readyState === WebSocket.OPEN) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({
             type: 'eatFood',
             foodId: food.id
@@ -216,5 +228,8 @@ class Game {
 
 // Start the game when the page loads
 window.addEventListener('load', () => {
-  new Game();
+  // Add a small delay to ensure the DOM is fully loaded
+  setTimeout(() => {
+    new Game();
+  }, 100);
 });
